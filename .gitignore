@@ -6,12 +6,8 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
 .venv
 
-celeba_hq/
-cifar_real/
-data/
 fid_samples/
 checkpoints/
 images/
