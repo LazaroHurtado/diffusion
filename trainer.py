@@ -84,6 +84,10 @@ class Trainer():
 
             with torch.autocast(self.device, dtype=torch.bfloat16):
                 pred_noise = self.model(noisy_x, t)
+                # \sum_{t=2}^{T} L_{t-1}
+                # We ignore L_T, prior matching loss, and L_0, reconstruction loss
+                #   - L_T does not depend on model parameters
+                #   - L_0 is similar to a step in L_{1:T-1}, so we can ignore it
                 loss_value = self.loss_fn(pred_noise, eps) / self.grad_accum
             
             loss_value.backward()
