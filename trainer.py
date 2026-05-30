@@ -1,6 +1,6 @@
+import matplotlib
 import torch
 from tqdm import tqdm
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -74,19 +74,25 @@ class Trainer:
 
     def _train_epoch(self, pbar):
         T_total = self.time_scheduler.T
-        for idx, (x_0, _) in enumerate(self.data_loader):
+        for idx, (x_0, y) in enumerate(self.data_loader):
             if self.opt_step >= self.total_steps:
                 break
 
+            y = (
+                y.to(self.device, non_blocking=True) + 1
+            )  # Reserve class label 0 for unconditional generation
+            drop = torch.rand(y.size(0), device=y.device) < 0.1
+            y = torch.where(drop, torch.zeros_like(y), y)
             x_0 = x_0.to(self.device, non_blocking=True)
+
             t = torch.randint(0, T_total, (x_0.size(0),), device=x_0.device)
             alpha_bar_t = self.time_scheduler.alpha_bar(t)[:, None, None, None]
 
             eps = torch.randn_like(x_0)
-            noisy_x = alpha_bar_t.sqrt() * x_0 + (1.0 - alpha_bar_t).sqrt() * eps
+            x_t = alpha_bar_t.sqrt() * x_0 + (1.0 - alpha_bar_t).sqrt() * eps
 
             with torch.autocast(self.device, dtype=torch.bfloat16):
-                pred_noise = self.model(noisy_x, t)
+                pred_noise, pred_var = self.model(x_t, t, y)
                 # \sum_{t=2}^{T} L_{t-1}
                 # We ignore L_T, prior matching loss, and L_0, reconstruction loss
                 #   - L_T does not depend on model parameters

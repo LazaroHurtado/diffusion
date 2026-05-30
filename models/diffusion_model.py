@@ -12,7 +12,7 @@ class DiffusionModel(nn.Module):
         self.T_total = T_total
 
     @torch.inference_mode()
-    def sample(self, num_samples, time_scheduler):
+    def sample(self, num_samples, time_scheduler, labels = None):
         device = next(self.parameters()).device
         imgs = torch.randn(num_samples, *self.img_shape, device=device)
 
@@ -20,7 +20,7 @@ class DiffusionModel(nn.Module):
             t_batch = torch.full(
                 (imgs.size(0),), t, device=imgs.device, dtype=torch.long
             )
-            pred_noise = self(imgs, t_batch)
+            pred_noise, _ = self(imgs, t_batch, labels)
 
             beta_t = time_scheduler.beta(t_batch)[:, None, None, None]
             alpha_t = time_scheduler.alpha(t_batch)[:, None, None, None]

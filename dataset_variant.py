@@ -26,7 +26,7 @@ class HFImageDataset(Dataset):
         img = self.ds[idx]["image"]
         if self.transform:
             img = self.transform(img)
-        return img, 0
+        return img, -1
 
 
 class DatasetVariant(Enum):

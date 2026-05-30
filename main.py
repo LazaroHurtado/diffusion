@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 
 from dataset_variant import DatasetVariant
 from models.ema import EMA
-from models.unet.unet import UNet
+from models.unet import UNet
 from schedulers.linear import LinearScheduler
 from trainer import Trainer
 
