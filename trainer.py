@@ -1,23 +1,26 @@
 import torch
 from tqdm import tqdm
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-class Trainer():
-    def __init__(self,
-                 model,
-                 ema,
-                 data_loader,
-                 time_scheduler,
-                 optimizer,
-                 loss_fn,
-                 inference_freq,
-                 save_freq,
-                 checkpoints_dir,
-                 images_dir,
-                 device="cuda"):
+class Trainer:
+    def __init__(
+        self,
+        model,
+        ema,
+        data_loader,
+        time_scheduler,
+        optimizer,
+        loss_fn,
+        inference_freq,
+        save_freq,
+        checkpoints_dir,
+        images_dir,
+        device="cuda",
+    ):
         self.model = model
         self.ema = ema
         self.time_scheduler = time_scheduler
@@ -38,7 +41,7 @@ class Trainer():
         self.opt_step = opt_step
         self.grad_accum = grad_accum
         self.epoch = start_epoch
-        
+
         pbar = tqdm(total=self.total_steps, desc="Training")
         pbar.n = self.opt_step
         pbar.refresh()
@@ -47,11 +50,11 @@ class Trainer():
             self.epoch += 1
             self.model.train()
             self.optimizer.zero_grad(set_to_none=True)
-            
+
             self._train_epoch(pbar)
 
             pbar.set_postfix({"epoch": self.epoch})
-            
+
             if self.epoch % self.inference_freq == 0:
                 self._sample_img(self.epoch)
             if self.epoch % self.save_freq == 0:
@@ -60,7 +63,7 @@ class Trainer():
                     {"model": raw_model.state_dict(), "ema": self.ema.state_dict()},
                     f"{self.checkpoints_dir}/unet_{self.epoch}.pth",
                 )
-        
+
         pbar.close()
 
         raw_model = getattr(self.model, "_orig_mod", self.model)
@@ -68,13 +71,13 @@ class Trainer():
             {"model": raw_model.state_dict(), "ema": self.ema.state_dict()},
             f"{self.checkpoints_dir}/unet_{self.epoch}.pth",
         )
-    
+
     def _train_epoch(self, pbar):
         T_total = self.time_scheduler.T
         for idx, (x_0, _) in enumerate(self.data_loader):
             if self.opt_step >= self.total_steps:
                 break
-            
+
             x_0 = x_0.to(self.device, non_blocking=True)
             t = torch.randint(0, T_total, (x_0.size(0),), device=x_0.device)
             alpha_bar_t = self.time_scheduler.alpha_bar(t)[:, None, None, None]
@@ -89,25 +92,25 @@ class Trainer():
                 #   - L_T does not depend on model parameters
                 #   - L_0 is similar to a step in L_{1:T-1}, so we can ignore it
                 loss_value = self.loss_fn(pred_noise, eps) / self.grad_accum
-            
+
             loss_value.backward()
             if (idx + 1) % self.grad_accum == 0:
                 self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
-                
+
                 self.ema.ema()
                 self.opt_step += 1
                 pbar.update(1)
-    
+
     def _sample_img(self, idx):
         self.ema.model.eval()
-        
+
         x = self.ema.model.sample(4, self.time_scheduler).cpu().numpy()
         _, axes = plt.subplots(2, 2, figsize=(8, 8))
         for i in range(4):
             ax = axes[i // 2, i % 2]
             ax.imshow(x[i].transpose(1, 2, 0))
-            ax.axis('off')
-        
+            ax.axis("off")
+
         plt.savefig(f"{self.images_dir}/generated_samples_{idx}.png")
         plt.close()

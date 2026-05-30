@@ -5,7 +5,15 @@ from models.adagn import AdaGN
 
 
 class ResNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, time_emb_dim, groups=32, dropout=0.0, resample=None):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        time_emb_dim,
+        groups=32,
+        dropout=0.0,
+        resample=None,
+    ):
         super().__init__()
         assert resample in (None, "up", "down")
         self.resample = resample

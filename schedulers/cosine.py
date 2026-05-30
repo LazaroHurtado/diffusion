@@ -1,6 +1,7 @@
 import torch
 import math
 
+
 class CosineScheduler:
     PI_HALF = math.pi / 2.0
 
@@ -15,9 +16,9 @@ class CosineScheduler:
         alpha_bar_prev = torch.cat([f_0 / f_0, alpha_bar[:-1]]).float()
         beta = torch.clamp(1.0 - alpha_bar / alpha_bar_prev, max=0.999)
 
-        self._alpha_bar_buf = alpha_bar.to(device)   # shape (T,)
-        self._beta_buf = beta.to(device)             # shape (T,)
-        self._alpha_buf = (1.0 - beta).to(device)    # shape (T,)
+        self._alpha_bar_buf = alpha_bar.to(device)  # shape (T,)
+        self._beta_buf = beta.to(device)  # shape (T,)
+        self._alpha_buf = (1.0 - beta).to(device)  # shape (T,)
 
     def _f(self, t: torch.Tensor):
         progress = t / self.T

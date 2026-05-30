@@ -41,7 +41,7 @@ class DatasetVariant(Enum):
             DatasetVariant.CELEB_SMALL: 64,
             DatasetVariant.CELEB: 256,
         }[self]
-    
+
     @property
     def model_params(self):
         return {
@@ -68,35 +68,43 @@ class DatasetVariant(Enum):
                 "attn_resolutions": (32, 16, 8),
                 "num_resnets": 2,
                 "dropout": 0.1,
-            }
+            },
         }[self]
 
     def _transform(self):
-        return transforms.Compose([
-            transforms.Resize(self.img_size),
-            transforms.CenterCrop(self.img_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ])
+        return transforms.Compose(
+            [
+                transforms.Resize(self.img_size),
+                transforms.CenterCrop(self.img_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
 
     def _dataset(self, root, train):
         transform = self._transform()
         if self is DatasetVariant.CIFAR10:
-            return datasets.CIFAR10(root=root, train=train, download=True, transform=transform)
-        
+            return datasets.CIFAR10(
+                root=root, train=train, download=True, transform=transform
+            )
+
         if self is DatasetVariant.CELEB:
             hf = load_dataset("korexyz/celeba-hq-256x256", split="train")
             return HFImageDataset(hf, transform=transform)
-        
+
         if self is DatasetVariant.CELEB_SMALL:
-            hf = load_dataset("BeibeiLim/celeba_hq_64", split="train") \
-                    .cast_column("image", HFImage(decode=False)) \
-                    .with_transform(
-                        lambda x: {"image": [_bytes_to_image(item["path"]) for item in x["image"]]}
-                    )
+            hf = (
+                load_dataset("BeibeiLim/celeba_hq_64", split="train")
+                .cast_column("image", HFImage(decode=False))
+                .with_transform(
+                    lambda x: {
+                        "image": [_bytes_to_image(item["path"]) for item in x["image"]]
+                    }
+                )
+            )
             return HFImageDataset(hf, transform=transform)
-        
+
         raise ValueError(f"Unknown variant: {self}")
 
     def dataloader(

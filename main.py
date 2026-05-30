@@ -1,16 +1,16 @@
 import os
+
+import matplotlib
 import torch
 from fire import Fire
-from tqdm import tqdm
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
-from models.model import Model
-from models.ema import EMA
-from trainer import Trainer
-from schedulers.linear import LinearScheduler
+matplotlib.use("Agg")
+
 from dataset_variant import DatasetVariant
+from models.ema import EMA
+from models.unet.unet import UNet
+from schedulers.linear import LinearScheduler
+from trainer import Trainer
 
 
 def main(
@@ -48,11 +48,15 @@ def main(
     print(f"dataset length: {len(train_loader.dataset)}")
 
     img_size = variant.img_size
-    model = Model(img_shape=(3, img_size, img_size), T_total=T_total, **variant.model_params).to(device)
+    model = UNet(
+        img_shape=(3, img_size, img_size), T_total=T_total, **variant.model_params
+    ).to(device)
     if load_from_checkpoint:
-        ckpt = torch.load(f"{checkpoints_dir}/unet_{start_epoch}.pth", map_location=device)
+        ckpt = torch.load(
+            f"{checkpoints_dir}/unet_{start_epoch}.pth", map_location=device
+        )
         model.load_state_dict(ckpt["model"])
-    
+
     ema = EMA(model, decay=0.9999)
     if load_from_checkpoint:
         ema.load_state_dict(ckpt["ema"])
@@ -73,12 +77,14 @@ def main(
         save_freq=save_freq,
         checkpoints_dir=checkpoints_dir,
         images_dir=images_dir,
-        device=device
+        device=device,
     )
-    trainer.train(total_steps=total_steps,
-                  grad_accum=grad_accum,
-                  opt_step=opt_step,
-                  start_epoch=start_epoch)
+    trainer.train(
+        total_steps=total_steps,
+        grad_accum=grad_accum,
+        opt_step=opt_step,
+        start_epoch=start_epoch,
+    )
 
 
 if __name__ == "__main__":

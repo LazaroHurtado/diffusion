@@ -32,5 +32,3 @@ class EMA:
     def to(self, *args, **kwargs) -> "EMA":
         self.model.to(*args, **kwargs)
         return self
-
-

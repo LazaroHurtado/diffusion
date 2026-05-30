@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 
 from models.adagn import AdaGN
-from models.resnet import ResNetBlock
-from models.time_pos_emb import PositionalEmbedding
+from models.diffusion_model import DiffusionModel
+
+from .resnet import ResNetBlock
+from .time_pos_emb import PositionalEmbedding
 
 
-def cat(a, b): return torch.cat([a, b], dim=1)
+def cat(a, b):
+    return torch.cat([a, b], dim=1)
 
 
 class SelfAttention(nn.Module):
@@ -27,7 +30,16 @@ class SelfAttention(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, img_size, channels, time_dim, channel_multipliers, attn_resolutions, num_resnets=2, dropout=0.1):
+    def __init__(
+        self,
+        img_size,
+        channels,
+        time_dim,
+        channel_multipliers,
+        attn_resolutions,
+        num_resnets=2,
+        dropout=0.1,
+    ):
         super().__init__()
         self.channels = channels
         num_resolutions = len(channel_multipliers)
@@ -36,16 +48,24 @@ class Encoder(nn.Module):
         modules = []
         for i in range(num_resolutions):
             out_channels = channels * channel_multipliers[i]
-            
+
             with_attn = img_size in attn_resolutions
             for _ in range(num_resnets):
-                modules.append(ResNetBlock(in_channels, out_channels, time_dim, dropout=dropout))
+                modules.append(
+                    ResNetBlock(in_channels, out_channels, time_dim, dropout=dropout)
+                )
                 if with_attn:
                     modules.append(SelfAttention(out_channels, time_dim))
                 in_channels = out_channels
 
             if i < num_resolutions - 1:
-                down = ResNetBlock(out_channels, out_channels, time_dim, dropout=dropout, resample="down")
+                down = ResNetBlock(
+                    out_channels,
+                    out_channels,
+                    time_dim,
+                    dropout=dropout,
+                    resample="down",
+                )
                 modules.append(down)
                 img_size = img_size // 2
         self.encoder = nn.ModuleList(modules)
@@ -65,7 +85,16 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, img_size, channels, time_dim, channel_multipliers, attn_resolutions, num_resnets=2, dropout=0.1):
+    def __init__(
+        self,
+        img_size,
+        channels,
+        time_dim,
+        channel_multipliers,
+        attn_resolutions,
+        num_resnets=2,
+        dropout=0.1,
+    ):
         super().__init__()
         self.channels = channels
         num_resolutions = len(channel_multipliers)
@@ -76,7 +105,7 @@ class Decoder(nn.Module):
             out_channels = channels * channel_multipliers[i]
 
             with_attn = img_size in attn_resolutions
-            for resnet_i in range(num_resnets+1):
+            for resnet_i in range(num_resnets + 1):
                 # The extra (num_resnets+1)th resnet consumes the downsampled
                 # skip produced at the end of the previous (lower-i) encoder stage,
                 # which has enc_channels[i-1] channels.
@@ -84,21 +113,32 @@ class Decoder(nn.Module):
                     skip_in_channels = channels * channel_multipliers[i - 1]
                 else:
                     skip_in_channels = channels * channel_multipliers[i]
-                
-                modules.append(ResNetBlock(in_channels + skip_in_channels, out_channels, time_dim, dropout=dropout))
+
+                modules.append(
+                    ResNetBlock(
+                        in_channels + skip_in_channels,
+                        out_channels,
+                        time_dim,
+                        dropout=dropout,
+                    )
+                )
                 if with_attn:
                     modules.append(SelfAttention(out_channels, time_dim))
                 in_channels = out_channels
 
             if i > 0:
-                up = ResNetBlock(in_channels, in_channels, time_dim, dropout=dropout, resample="up")
+                up = ResNetBlock(
+                    in_channels, in_channels, time_dim, dropout=dropout, resample="up"
+                )
                 modules.append(up)
                 img_size = img_size * 2
         self.decoder = nn.ModuleList(modules)
 
     def forward(self, h, t_emb, hs):
         for module in self.decoder:
-            if isinstance(module, ResNetBlock) and not getattr(module, "resample", None):
+            if isinstance(module, ResNetBlock) and not getattr(
+                module, "resample", None
+            ):
                 h = module(cat(h, hs.pop()), t_emb)
             else:
                 h = module(h, t_emb)
@@ -106,39 +146,68 @@ class Decoder(nn.Module):
         return h
 
 
-class UNet(nn.Module):
-    def __init__(self, 
-                 img_channels=3,
-                 img_size=256,
-                 base_channels=128,
-                 time_dim=512,
-                 channel_multipliers=(1, 2, 4, 8),
-                 attn_resolutions=(16,),
-                 num_resnets=2,
-                 dropout=0.1):
-        super().__init__()
+class UNet(DiffusionModel):
+    def __init__(
+        self,
+        img_shape=(3, 256, 256),
+        base_channels=128,
+        time_dim=512,
+        channel_multipliers=(1, 2, 4, 8),
+        attn_resolutions=(16,),
+        num_resnets=2,
+        dropout=0.1,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(img_shape, *args, **kwargs)
+        self.img_channels = img_shape[0]
+        self.img_size = img_shape[1]
         self.time_embedding = nn.Sequential(
             PositionalEmbedding(base_channels),
             nn.Linear(base_channels, time_dim),
             nn.SiLU(),
-            nn.Linear(time_dim, time_dim)
+            nn.Linear(time_dim, time_dim),
         )
 
-        self.input_conv = nn.Conv2d(img_channels, base_channels, kernel_size=3, padding=1)
+        self.input_conv = nn.Conv2d(
+            self.img_channels, base_channels, kernel_size=3, padding=1
+        )
 
-        self.encoder = Encoder(img_size, base_channels, time_dim, channel_multipliers, attn_resolutions, num_resnets, dropout=dropout)
+        self.encoder = Encoder(
+            self.img_size,
+            base_channels,
+            time_dim,
+            channel_multipliers,
+            attn_resolutions,
+            num_resnets,
+            dropout=dropout,
+        )
 
         encoded_channels = base_channels * channel_multipliers[-1]
-        self.mid1 = ResNetBlock(encoded_channels, encoded_channels, time_dim, dropout=dropout)
+        self.mid1 = ResNetBlock(
+            encoded_channels, encoded_channels, time_dim, dropout=dropout
+        )
         self.attn_mid = SelfAttention(encoded_channels, time_dim)
-        self.mid2 = ResNetBlock(encoded_channels, encoded_channels, time_dim, dropout=dropout)
+        self.mid2 = ResNetBlock(
+            encoded_channels, encoded_channels, time_dim, dropout=dropout
+        )
 
-        img_size = img_size // (2 ** (len(channel_multipliers) - 1))
-        self.decoder = Decoder(img_size, base_channels, time_dim, channel_multipliers, attn_resolutions, num_resnets, dropout=dropout)
+        decoder_img_size = self.img_size // (2 ** (len(channel_multipliers) - 1))
+        self.decoder = Decoder(
+            decoder_img_size,
+            base_channels,
+            time_dim,
+            channel_multipliers,
+            attn_resolutions,
+            num_resnets,
+            dropout=dropout,
+        )
 
         self.out_norm = AdaGN(base_channels, time_dim)
         self.out_act = nn.SiLU()
-        self.out_conv = nn.Conv2d(base_channels, img_channels, kernel_size=3, padding=1)
+        self.out_conv = nn.Conv2d(
+            base_channels, self.img_channels, kernel_size=3, padding=1
+        )
 
     def forward(self, x, t):
         t_emb = self.time_embedding(t)
