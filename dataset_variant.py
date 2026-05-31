@@ -1,12 +1,12 @@
-from enum import Enum
-from pathlib import Path
 import base64
+from enum import Enum
+from io import BytesIO
 
+from datasets import Image as HFImage
+from datasets import load_dataset
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
-from datasets import load_dataset, Image as HFImage
-from io import BytesIO
 
 
 def _bytes_to_image(bytes_data):

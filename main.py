@@ -7,8 +7,7 @@ from fire import Fire
 matplotlib.use("Agg")
 
 from dataset_variant import DatasetVariant
-from models.ema import EMA
-from models.unet import UNet
+from models import EMA, UNet
 from schedulers.linear import LinearScheduler
 from trainer import Trainer
 

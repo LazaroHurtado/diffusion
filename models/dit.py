@@ -23,29 +23,32 @@ class BaseDitBlock(nn.Module):
         )
 
 
-# Diffusion Transformer Block
-# Takes in input tokens and time embeddings
 class DiTBlock(BaseDitBlock):
     def __init__(self, dim, embed_dim, num_heads, mlp_ratio=4.0):
         super().__init__(dim, embed_dim, num_heads, mlp_ratio)
         self.norm1 = AdaLN(dim, dim)
-        self.scale1 = nn.Parameter(torch.zeros(dim))
-
+        self.scale = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(dim, 2 * dim, bias=True),
+        )
         self.norm2 = AdaLN(dim, dim)
-        self.scale2 = nn.Parameter(torch.zeros(dim))
+
+        nn.init.zeros_(self.scale[-1].weight)
+        nn.init.zeros_(self.scale[-1].bias)
 
     def forward(self, x, c):
         c = self.conditioning(c)
+        scale1, scale2 = self.scale(c).chunk(2, dim=-1)
 
         # Self-attention
         normed_x = self.norm1(x, c)
         attn_out = self.self_attn(normed_x, normed_x, normed_x)[0]
-        x = x + (attn_out * self.scale1)
+        x = x + (attn_out * scale1)
 
         # MLP
         normed_x = self.norm2(x, c)
         mlp_out = self.mlp(normed_x)
-        x = x + (mlp_out * self.scale2)
+        x = x + (mlp_out * scale2)
 
         return x
 
@@ -125,7 +128,7 @@ class DiT(DiffusionModel):
         in_chans,
         num_classes,
         embed_dim,
-        num_blocks,
+        num_layers,
         num_heads,
         mlp_ratio=4.0,
         block_type=DiTBlock,
@@ -150,7 +153,7 @@ class DiT(DiffusionModel):
         self.dit_blocks = nn.ModuleList(
             [
                 block_type(embed_dim, embed_dim, num_heads, mlp_ratio)
-                for _ in range(num_blocks)
+                for _ in range(num_layers)
             ]
         )
 

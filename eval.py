@@ -1,12 +1,13 @@
 import os
+
 import torch
-from tqdm import tqdm
 from fire import Fire
+from torchvision.utils import save_image
+from tqdm import tqdm
 
 from dataset_variant import DatasetVariant
+from models import UNet
 from schedulers.linear import LinearScheduler
-from torchvision.utils import save_image
-from models.model import Model
 
 T_TOTAL = 1000
 NUM_SAMPLES = 50000  # 10k–50k is typical for FID
@@ -27,7 +28,7 @@ def main(
 
     variant = DatasetVariant(dataset)
     img_size = variant.img_size
-    model = Model(
+    model = UNet(
         img_shape=(3, img_size, img_size), T_total=T_TOTAL, **variant.model_params
     ).to(device)
 
