@@ -6,7 +6,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from dataset_variant import DatasetVariant
-from models import UNet
+from models import ModelFactory
 from schedulers.linear import LinearScheduler
 
 T_TOTAL = 1000
@@ -17,6 +17,7 @@ OUT_DIR = "fid_samples"
 @torch.inference_mode()
 def main(
     checkpoint,
+    model_name="unet",
     dataset="cifar10",
     batch_size=1024,
     out_dir=OUT_DIR,
@@ -27,10 +28,9 @@ def main(
     os.makedirs(out_dir, exist_ok=True)
 
     variant = DatasetVariant(dataset)
-    img_size = variant.img_size
-    model = UNet(
-        img_shape=(3, img_size, img_size), T_total=T_TOTAL, **variant.model_params
-    ).to(device)
+
+    model_cls = ModelFactory.fetch_model_cls(model_name)
+    model = model_cls.from_dataset(variant, T_total=T_TOTAL).to(device)
 
     ckpt = torch.load(checkpoint, map_location=device)
     state = ckpt["ema"] if isinstance(ckpt, dict) and "ema" in ckpt else ckpt

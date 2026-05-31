@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from dataset_variant import DatasetVariant
+
 from .adanorms import AdaGN
 from .diffusion_model import DiffusionModel
+from .model_preset import ModelPreset
 from .pos_emb import SinPosEmbedding
 
 
@@ -193,7 +196,31 @@ class Decoder(nn.Module):
         return h
 
 
-class UNet(DiffusionModel):
+class UNet(DiffusionModel, ModelPreset):
+    PRESETS = {
+        "unet-s": {
+            "base_channels": 128,
+            "time_dim": 512,
+            "channel_multipliers": (1, 2, 2, 2),
+            "attn_resolutions": (32, 16, 8),
+            "num_resnets": 2,
+        },
+        "unet-b": {
+            "base_channels": 128,
+            "time_dim": 512,
+            "channel_multipliers": (1, 1, 2, 2, 4, 4),
+            "attn_resolutions": (32, 16, 8),
+            "num_resnets": 2,
+        },
+        "unet-l": {
+            "base_channels": 192,
+            "time_dim": 512,
+            "channel_multipliers": (1, 1, 2, 2, 4, 4),
+            "attn_resolutions": (32, 16, 8),
+            "num_resnets": 2,
+        },
+    }
+
     def __init__(
         self,
         img_shape=(3, 256, 256),
@@ -203,10 +230,12 @@ class UNet(DiffusionModel):
         attn_resolutions=(16,),
         num_resnets=2,
         dropout=0.1,
+        name="unet",
         *args,
         **kwargs,
     ):
         super().__init__(img_shape, *args, **kwargs)
+        self.name = name
         self.img_channels = img_shape[0]
         self.img_size = img_shape[1]
         self.time_embedding = nn.Sequential(
@@ -273,3 +302,26 @@ class UNet(DiffusionModel):
         h = self.out_act(h)
 
         return self.out_conv(h), None
+
+    def name(self) -> str:
+        return self.name
+
+    @classmethod
+    def with_preset(cls, name: str, **kwargs) -> "UNet":
+        preset = cls.PRESETS.get(name.lower(), None)
+        if preset is None:
+            raise ValueError(f"Unknown preset: {name}")
+        return cls(name=name, **preset, **kwargs)
+
+    @classmethod
+    def from_dataset(cls, dataset: DatasetVariant, **kwargs) -> "UNet":
+        img_shape = dataset.img_shape
+        match dataset:
+            case DatasetVariant.CIFAR10:
+                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
+            case DatasetVariant.CELEB_SMALL:
+                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
+            case DatasetVariant.CELEB:
+                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
+            case _:
+                raise ValueError(f"Unsupported dataset: {dataset}")

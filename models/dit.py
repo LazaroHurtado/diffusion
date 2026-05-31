@@ -1,8 +1,11 @@
 import torch
 import torch.nn as nn
 
+from dataset_variant import DatasetVariant
+
 from .adanorms import AdaLN
 from .diffusion_model import DiffusionModel
+from .model_preset import ModelPreset
 from .pos_emb import PatchSinPosEmbedding, SinPosEmbedding
 
 
@@ -38,7 +41,7 @@ class DiTBlock(BaseDitBlock):
 
     def forward(self, x, c):
         c = self.conditioning(c)
-        scale1, scale2 = self.scale(c).chunk(2, dim=-1)
+        scale1, scale2 = self.scale(c).unsqueeze(1).chunk(2, dim=-1)
 
         # Self-attention
         normed_x = self.norm1(x, c)
@@ -120,33 +123,56 @@ class PatchEmbedding(nn.Module):
         return x
 
 
-class DiT(DiffusionModel):
+class DiT(DiffusionModel, ModelPreset):
+    PRESETS = {
+        "dit-s": {
+            "num_layers": 12,
+            "embed_dim": 384,
+            "num_heads": 6,
+        },
+        "dit-b": {
+            "num_layers": 12,
+            "embed_dim": 768,
+            "num_heads": 12,
+        },
+        "dit-l": {
+            "num_layers": 24,
+            "embed_dim": 1024,
+            "num_heads": 16,
+        },
+        "dit-xl": {
+            "num_layers": 28,
+            "embed_dim": 1152,
+            "num_heads": 16,
+        },
+    }
+
     def __init__(
         self,
-        img_size,
+        img_shape,
         patch_size,
-        in_chans,
-        num_classes,
         embed_dim,
         num_layers,
         num_heads,
+        num_classes=0,
         mlp_ratio=4.0,
         block_type=DiTBlock,
+        name="dit",
         *args,
         **kwargs,
     ):
-        super().__init__(
-            img_shape=(in_chans, img_size[0], img_size[1]), *args, **kwargs
-        )
-        assert len(img_size) == 2
+        super().__init__(img_shape=img_shape, *args, **kwargs)
+        assert len(img_shape) == 3
 
-        self.img_size = img_size
-        self.in_chans = in_chans
+        self.img_size = img_shape[1:]
+        self.in_chans = img_shape[0]
         self.patch_size = patch_size
         self.num_classes = num_classes
-        self.grid = (img_size[0] // patch_size, img_size[1] // patch_size)
+        self.grid = (self.img_size[0] // patch_size, self.img_size[1] // patch_size)
 
-        self.patch_embed = PatchEmbedding(self.grid, patch_size, in_chans, embed_dim)
+        self.patch_embed = PatchEmbedding(
+            self.grid, patch_size, self.in_chans, embed_dim
+        )
         self.time_pos_embed = SinPosEmbedding(embed_dim)
         self.label_embed = nn.Embedding(num_classes + 1, embed_dim)
 
@@ -158,7 +184,7 @@ class DiT(DiffusionModel):
         )
 
         self.norm = AdaLN(embed_dim, embed_dim)
-        self.out = nn.Linear(embed_dim, patch_size * patch_size * in_chans * 2)
+        self.out = nn.Linear(embed_dim, patch_size * patch_size * self.in_chans * 2)
 
     def unpatchify(self, x):
         p = self.patch_size
@@ -197,3 +223,26 @@ class DiT(DiffusionModel):
         mean, var = x.chunk(2, dim=1)
 
         return mean, var
+
+    def name(self) -> str:
+        return self.name
+
+    @classmethod
+    def with_preset(cls, name: str, **kwargs) -> "DiT":
+        preset = cls.PRESETS.get(name.lower(), None)
+        if preset is None:
+            raise ValueError(f"Unknown preset: {name}")
+        return cls(name=name, **preset, **kwargs)
+
+    @classmethod
+    def from_dataset(cls, dataset: DatasetVariant, **kwargs) -> "DiT":
+        img_shape = dataset.img_shape
+        match dataset:
+            case DatasetVariant.CIFAR10:
+                return cls.with_preset("dit-s", img_shape=img_shape, **kwargs)
+            case DatasetVariant.CELEB_SMALL:
+                return cls.with_preset("dit-s", img_shape=img_shape, **kwargs)
+            case DatasetVariant.CELEB:
+                return cls.with_preset("dit-s", img_shape=img_shape, **kwargs)
+            case _:
+                raise ValueError(f"Unsupported dataset: {dataset}")

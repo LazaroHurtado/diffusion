@@ -35,47 +35,16 @@ class DatasetVariant(Enum):
     CELEB = "celeb"
 
     @property
-    def img_size(self):
+    def img_shape(self):
         return {
-            DatasetVariant.CIFAR10: 32,
-            DatasetVariant.CELEB_SMALL: 64,
-            DatasetVariant.CELEB: 256,
-        }[self]
-
-    @property
-    def model_params(self):
-        return {
-            DatasetVariant.CIFAR10: {
-                "base_channels": 128,
-                "time_dim": 512,
-                "channel_multipliers": (1, 2, 2, 2),
-                "attn_resolutions": (32, 16, 8),
-                "num_resnets": 2,
-                "dropout": 0.1,
-            },
-            DatasetVariant.CELEB: {
-                "base_channels": 128,
-                "time_dim": 512,
-                "channel_multipliers": (1, 1, 2, 2, 4, 4),
-                "attn_resolutions": (32, 16, 8),
-                "num_resnets": 2,
-                "dropout": 0.1,
-            },
-            DatasetVariant.CELEB_SMALL: {
-                "base_channels": 128,
-                "time_dim": 512,
-                "channel_multipliers": (1, 2, 2, 2),
-                "attn_resolutions": (32, 16, 8),
-                "num_resnets": 2,
-                "dropout": 0.1,
-            },
+            DatasetVariant.CIFAR10: (3, 32, 32),
+            DatasetVariant.CELEB_SMALL: (3, 64, 64),
+            DatasetVariant.CELEB: (3, 256, 256),
         }[self]
 
     def _transform(self):
         return transforms.Compose(
             [
-                transforms.Resize(self.img_size),
-                transforms.CenterCrop(self.img_size),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -84,34 +53,36 @@ class DatasetVariant(Enum):
 
     def _dataset(self, root, train):
         transform = self._transform()
-        if self is DatasetVariant.CIFAR10:
-            return datasets.CIFAR10(
-                root=root, train=train, download=True, transform=transform
-            )
 
-        if self is DatasetVariant.CELEB:
-            hf = load_dataset("korexyz/celeba-hq-256x256", split="train")
-            return HFImageDataset(hf, transform=transform)
-
-        if self is DatasetVariant.CELEB_SMALL:
-            hf = (
-                load_dataset("BeibeiLim/celeba_hq_64", split="train")
-                .cast_column("image", HFImage(decode=False))
-                .with_transform(
-                    lambda x: {
-                        "image": [_bytes_to_image(item["path"]) for item in x["image"]]
-                    }
+        match self:
+            case DatasetVariant.CIFAR10:
+                return datasets.CIFAR10(
+                    root=root, train=train, download=True, transform=transform
                 )
-            )
-            return HFImageDataset(hf, transform=transform)
-
-        raise ValueError(f"Unknown variant: {self}")
+            case DatasetVariant.CELEB:
+                hf = load_dataset("korexyz/celeba-hq-256x256", split="train")
+                return HFImageDataset(hf, transform=transform)
+            case DatasetVariant.CELEB_SMALL:
+                hf = (
+                    load_dataset("BeibeiLim/celeba_hq_64", split="train")
+                    .cast_column("image", HFImage(decode=False))
+                    .with_transform(
+                        lambda x: {
+                            "image": [
+                                _bytes_to_image(item["path"]) for item in x["image"]
+                            ]
+                        }
+                    )
+                )
+                return HFImageDataset(hf, transform=transform)
+            case _:
+                raise ValueError(f"Unknown variant: {self}")
 
     def dataloader(
         self,
         root="./data",
         train=True,
-        batch_size=1,
+        batch_size=64,
         shuffle=True,
         num_workers=8,
         pin_memory=True,

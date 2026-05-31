@@ -7,12 +7,13 @@ from fire import Fire
 matplotlib.use("Agg")
 
 from dataset_variant import DatasetVariant
-from models import EMA, UNet
+from models import EMA, ModelFactory
 from schedulers.linear import LinearScheduler
 from trainer import Trainer
 
 
 def main(
+    model_name="unet",
     dataset="celeb",
     data_root=".",
     batch_size=8,
@@ -25,6 +26,7 @@ def main(
     inference_freq=25,
     save_freq=100,
     device="cuda",
+    **model_kwargs,
 ):
     variant = DatasetVariant(dataset)
     train_loader = variant.dataloader(
@@ -44,15 +46,15 @@ def main(
     os.makedirs(images_dir, exist_ok=True)
 
     print(f"device: {device}")
+    print(f"model name: {model_name}")
+    print(f"dataset: {dataset}")
     print(f"dataset length: {len(train_loader.dataset)}")
 
-    img_size = variant.img_size
-    model = UNet(
-        img_shape=(3, img_size, img_size), T_total=T_total, **variant.model_params
-    ).to(device)
+    model_cls = ModelFactory.fetch_model_cls(model_name)
+    model = model_cls.from_dataset(variant, T_total=T_total, **model_kwargs).to(device)
     if load_from_checkpoint:
         ckpt = torch.load(
-            f"{checkpoints_dir}/unet_{start_epoch}.pth", map_location=device
+            f"{checkpoints_dir}/{model.name()}_{start_epoch}.pth", map_location=device
         )
         model.load_state_dict(ckpt["model"])
 
