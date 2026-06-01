@@ -6,6 +6,7 @@ from fire import Fire
 
 matplotlib.use("Agg")
 
+from codec import BasicCodec, VAECodec
 from dataset_variant import DatasetVariant
 from models import EMA, ModelFactory
 from schedulers.linear import LinearScheduler
@@ -25,6 +26,7 @@ def main(
     load_from_checkpoint=False,
     inference_freq=25,
     save_freq=100,
+    vae_codec=None,
     device="cuda",
     **model_kwargs,
 ):
@@ -54,13 +56,18 @@ def main(
     model = model_cls.from_dataset(variant, T_total=T_total, **model_kwargs).to(device)
     if load_from_checkpoint:
         ckpt = torch.load(
-            f"{checkpoints_dir}/{model.name()}_{start_epoch}.pth", map_location=device
+            f"{checkpoints_dir}/{model.name}_{start_epoch}.pth", map_location=device
         )
         model.load_state_dict(ckpt["model"])
 
     ema = EMA(model, decay=0.9999)
     if load_from_checkpoint:
         ema.load_state_dict(ckpt["ema"])
+
+    if vae_codec is not None:
+        codec = VAECodec(vae_model=vae_codec, device=device)
+    else:
+        codec = BasicCodec(device=device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=2e-4)
     loss_fn = torch.nn.MSELoss()
@@ -70,6 +77,7 @@ def main(
     trainer = Trainer(
         model=model,
         ema=ema,
+        codec=codec,
         data_loader=train_loader,
         time_scheduler=time_scheduler,
         optimizer=optimizer,

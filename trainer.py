@@ -11,6 +11,7 @@ class Trainer:
         self,
         model,
         ema,
+        codec,
         data_loader,
         time_scheduler,
         optimizer,
@@ -23,6 +24,7 @@ class Trainer:
     ):
         self.model = model
         self.ema = ema
+        self.codec = codec
         self.time_scheduler = time_scheduler
         self.device = device
 
@@ -61,7 +63,7 @@ class Trainer:
                 raw_model = getattr(self.model, "_orig_mod", self.model)
                 torch.save(
                     {"model": raw_model.state_dict(), "ema": self.ema.state_dict()},
-                    f"{self.checkpoints_dir}/unet_{self.epoch}.pth",
+                    f"{self.checkpoints_dir}/{self.model.name}_{self.epoch}.pth",
                 )
 
         pbar.close()
@@ -83,7 +85,7 @@ class Trainer:
             )  # Reserve class label 0 for unconditional generation
             drop = torch.rand(y.size(0), device=y.device) < 0.1
             y = torch.where(drop, torch.zeros_like(y), y)
-            x_0 = x_0.to(self.device, non_blocking=True)
+            x_0 = self.codec.encode(x_0)
 
             t = torch.randint(0, T_total, (x_0.size(0),), device=x_0.device)
             alpha_bar_t = self.time_scheduler.alpha_bar(t)[:, None, None, None]
@@ -91,15 +93,15 @@ class Trainer:
             eps = torch.randn_like(x_0)
             x_t = alpha_bar_t.sqrt() * x_0 + (1.0 - alpha_bar_t).sqrt() * eps
 
-            with torch.autocast(self.device, dtype=torch.bfloat16):
-                pred_noise, pred_var = self.model(x_t, t, y)
-                # \sum_{t=2}^{T} L_{t-1}
-                # We ignore L_T, prior matching loss, and L_0, reconstruction loss
-                #   - L_T does not depend on model parameters
-                #   - L_0 is similar to a step in L_{1:T-1}, so we can ignore it
-                loss_value = self.loss_fn(pred_noise, eps) / self.grad_accum
+            pred_noise, pred_var = self.model(x_t, t, y)
 
+            # \sum_{t=2}^{T} L_{t-1}
+            # We ignore L_T, prior matching loss, and L_0, reconstruction loss
+            #   - L_T does not depend on model parameters
+            #   - L_0 is similar to a step in L_{1:T-1}, so we can ignore it
+            loss_value = self.loss_fn(pred_noise, eps) / self.grad_accum
             loss_value.backward()
+
             if (idx + 1) % self.grad_accum == 0:
                 self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
@@ -111,7 +113,8 @@ class Trainer:
     def _sample_img(self, idx):
         self.ema.model.eval()
 
-        x = self.ema.model.sample(4, self.time_scheduler).cpu().numpy()
+        x = self.ema.model.sample(4, self.time_scheduler)
+        x = self.codec.decode(x).cpu().numpy()
         _, axes = plt.subplots(2, 2, figsize=(8, 8))
         for i in range(4):
             ax = axes[i // 2, i % 2]

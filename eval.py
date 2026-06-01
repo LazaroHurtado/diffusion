@@ -5,6 +5,7 @@ from fire import Fire
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+from codec import BasicCodec, VAECodec
 from dataset_variant import DatasetVariant
 from models import ModelFactory
 from schedulers.linear import LinearScheduler
@@ -18,6 +19,7 @@ OUT_DIR = "fid_samples"
 def main(
     checkpoint,
     model_name="unet",
+    vae_codec=None,
     dataset="cifar10",
     batch_size=1024,
     out_dir=OUT_DIR,
@@ -32,6 +34,11 @@ def main(
     model_cls = ModelFactory.fetch_model_cls(model_name)
     model = model_cls.from_dataset(variant, T_total=T_TOTAL).to(device)
 
+    if vae_codec is not None:
+        codec = VAECodec(vae_model=vae_codec, device=device)
+    else:
+        codec = BasicCodec(device=device)
+
     ckpt = torch.load(checkpoint, map_location=device)
     state = ckpt["ema"] if isinstance(ckpt, dict) and "ema" in ckpt else ckpt
     model.load_state_dict(state)
@@ -43,9 +50,8 @@ def main(
     count = 0
 
     while count < num_samples:
-        with torch.autocast(device, dtype=torch.bfloat16):
-            x = model.sample(batch_size, scheduler)
-        x = x.float().cpu()
+        z = model.sample(batch_size, scheduler)
+        x = codec.decode(z.float()).cpu()
         for img in x:
             if count >= num_samples:
                 break

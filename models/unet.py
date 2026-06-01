@@ -303,25 +303,17 @@ class UNet(DiffusionModel, ModelPreset):
 
         return self.out_conv(h), None
 
-    def name(self) -> str:
-        return self.name
-
     @classmethod
-    def with_preset(cls, name: str, **kwargs) -> "UNet":
-        preset = cls.PRESETS.get(name.lower(), None)
+    def with_preset(cls, preset_name: str, **kwargs) -> "UNet":
+        preset = cls.PRESETS.get(preset_name.lower(), None)
         if preset is None:
-            raise ValueError(f"Unknown preset: {name}")
-        return cls(name=name, **preset, **kwargs)
+            raise ValueError(f"Unknown preset: {preset_name}")
+        return cls(name=preset_name, **preset, **kwargs)
 
     @classmethod
     def from_dataset(cls, dataset: DatasetVariant, **kwargs) -> "UNet":
         img_shape = dataset.img_shape
-        match dataset:
-            case DatasetVariant.CIFAR10:
-                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
-            case DatasetVariant.CELEB_SMALL:
-                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
-            case DatasetVariant.CELEB:
-                return cls.with_preset("unet-s", img_shape=img_shape, **kwargs)
-            case _:
-                raise ValueError(f"Unsupported dataset: {dataset}")
+        kwargs["img_shape"] = kwargs.get("img_shape", img_shape)
+        kwargs["preset_name"] = kwargs.get("preset_name", "unet-s")
+
+        return cls.with_preset(**kwargs)
