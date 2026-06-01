@@ -60,19 +60,10 @@ class Trainer:
             if self.epoch % self.inference_freq == 0:
                 self._sample_img(self.epoch)
             if self.epoch % self.save_freq == 0:
-                raw_model = getattr(self.model, "_orig_mod", self.model)
-                torch.save(
-                    {"model": raw_model.state_dict(), "ema": self.ema.state_dict()},
-                    f"{self.checkpoints_dir}/{self.model.name}_{self.epoch}.pth",
-                )
+                self._save_checkpoint()
 
         pbar.close()
-
-        raw_model = getattr(self.model, "_orig_mod", self.model)
-        torch.save(
-            {"model": raw_model.state_dict(), "ema": self.ema.state_dict()},
-            f"{self.checkpoints_dir}/unet_{self.epoch}.pth",
-        )
+        self._save_checkpoint()
 
     def _train_epoch(self, pbar):
         T_total = self.time_scheduler.T
@@ -123,3 +114,15 @@ class Trainer:
 
         plt.savefig(f"{self.images_dir}/generated_samples_{idx}.png")
         plt.close()
+
+    def _save_checkpoint(self):
+        raw_model = getattr(self.model, "_orig_mod", self.model)
+        torch.save(
+            {
+                "model": raw_model.state_dict(),
+                "ema": self.ema.state_dict(),
+                "epoch": self.epoch,
+                "opt_step": self.opt_step,
+            },
+            f"{self.checkpoints_dir}/{self.model.name}_{self.epoch}.pth",
+        )

@@ -13,6 +13,19 @@ from schedulers.linear import LinearScheduler
 from trainer import Trainer
 
 
+def load_from_checkpoint(model, ema, checkpoint, device):
+    if checkpoint is None or not checkpoint.endswith(".pth"):
+        return 0, 0
+
+    ckpt = torch.load(checkpoint, map_location=device)
+    model.load_state_dict(ckpt["model"])
+    ema.load_state_dict(ckpt["ema"])
+
+    epoch = ckpt["epoch"]
+    opt_step = ckpt["opt_step"]
+    return epoch, opt_step
+
+
 def main(
     model_name="unet",
     dataset="celeb",
@@ -21,9 +34,7 @@ def main(
     total_steps=800_000,
     T_total=1_000,
     grad_accum=8,
-    start_epoch=0,
-    opt_step=0,
-    load_from_checkpoint=False,
+    checkpoint=None,
     inference_freq=25,
     save_freq=100,
     vae_codec=None,
@@ -54,15 +65,9 @@ def main(
 
     model_cls = ModelFactory.fetch_model_cls(model_name)
     model = model_cls.from_dataset(variant, T_total=T_total, **model_kwargs).to(device)
-    if load_from_checkpoint:
-        ckpt = torch.load(
-            f"{checkpoints_dir}/{model.name}_{start_epoch}.pth", map_location=device
-        )
-        model.load_state_dict(ckpt["model"])
-
     ema = EMA(model, decay=0.9999)
-    if load_from_checkpoint:
-        ema.load_state_dict(ckpt["ema"])
+
+    epoch, opt_step = load_from_checkpoint(model, ema, checkpoint, device)
 
     if vae_codec is not None:
         codec = VAECodec(vae_model=vae_codec, device=device)
@@ -92,7 +97,7 @@ def main(
         total_steps=total_steps,
         grad_accum=grad_accum,
         opt_step=opt_step,
-        start_epoch=start_epoch,
+        start_epoch=epoch,
     )
 
 
