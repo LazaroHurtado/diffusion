@@ -1,3 +1,5 @@
+import math
+
 import matplotlib
 import torch
 from tqdm import tqdm
@@ -20,6 +22,7 @@ class Trainer:
         save_freq,
         checkpoints_dir,
         images_dir,
+        vlb_weight=0.001,
         device="cuda",
     ):
         self.model = model
@@ -33,6 +36,7 @@ class Trainer:
         self.optimizer = optimizer
         self.loss_fn = loss_fn
 
+        self.vlb_weight = vlb_weight
         self.inference_freq = inference_freq
         self.save_freq = save_freq
         self.checkpoints_dir = checkpoints_dir
@@ -84,13 +88,20 @@ class Trainer:
             eps = torch.randn_like(x_0)
             x_t = alpha_bar_t.sqrt() * x_0 + (1.0 - alpha_bar_t).sqrt() * eps
 
-            pred_noise, pred_var = self.model(x_t, t, y)
+            pred_noise, v = self.model(x_t, t, y)
 
             # \sum_{t=2}^{T} L_{t-1}
             # We ignore L_T, prior matching loss, and L_0, reconstruction loss
             #   - L_T does not depend on model parameters
             #   - L_0 is similar to a step in L_{1:T-1}, so we can ignore it
-            loss_value = self.loss_fn(pred_noise, eps) / self.grad_accum
+            l_simple = self.loss_fn(pred_noise, eps)
+
+            # Variational lower bound comes from the improved DDPM paper
+            # it measures the difference between the true posterior and the approximate posterior.
+            # This makes the model's variance learnable
+            l_vlb = self.vlb_term(x_0, x_t, t, v, pred_noise).mean()
+
+            loss_value = (l_simple + self.vlb_weight * l_vlb) / self.grad_accum
             loss_value.backward()
 
             if (idx + 1) % self.grad_accum == 0:
@@ -126,3 +137,30 @@ class Trainer:
             },
             f"{self.checkpoints_dir}/{self.model.name}_{self.epoch}.pth",
         )
+
+    def vlb_term(self, x_0, x_t, t, v, pred_noise):
+        if v is None:
+            return torch.zeros(x_0.size(0), device=x_0.device)
+        v = (v + 1) / 2
+
+        abar_t = self.time_scheduler.alpha_bar(t)[:, None, None, None]
+        beta_t = self.time_scheduler.beta(t)[:, None, None, None]
+        beta_tilde_t = self.time_scheduler.beta_tilde(t)[:, None, None, None]
+
+        mu, logvar = self.time_scheduler.q_posterior(x_0, x_t, t)
+
+        pred_x0 = (x_t - (1.0 - abar_t).sqrt() * pred_noise.detach()) / abar_t.sqrt()
+        pred_mu, _ = self.time_scheduler.q_posterior(pred_x0, x_t, t)
+        # Interpolation between the forward-process variance, beta_t, and the
+        # true reverse-process variance, beta_tilde_t. Our model learns the interpolation weight, v
+        pred_logvar = v * torch.log(beta_t) + (1 - v) * torch.log(beta_tilde_t)
+
+        kl = self.codec.normal_kl(mu, logvar, pred_mu, pred_logvar)
+        kl = kl.flatten(1).mean(1) / math.log(2.0)
+        if self.codec.is_latent:
+            return kl
+
+        nll = self.codec.gaussian_nll(x_0, pred_mu, 0.5 * pred_logvar)
+        nll = nll.flatten(1).mean(1) / math.log(2.0)
+
+        return torch.where(t == 0, nll, kl)

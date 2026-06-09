@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 from codec import BasicCodec, VAECodec
 from dataset_variant import DatasetVariant
 from models import EMA, ModelFactory
-from schedulers.linear import LinearScheduler
+from schedulers import CosineScheduler
 from trainer import Trainer
 
 
@@ -78,7 +78,7 @@ def main(
     loss_fn = torch.nn.MSELoss()
 
     model = torch.compile(model)
-    time_scheduler = LinearScheduler(T=T_total, device=device)
+    time_scheduler = CosineScheduler(T=T_total, device=device)
     trainer = Trainer(
         model=model,
         ema=ema,

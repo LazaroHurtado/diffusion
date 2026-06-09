@@ -21,7 +21,7 @@ class DiffusionModel(nn.Module):
             t_batch = torch.full(
                 (imgs.size(0),), t, device=imgs.device, dtype=torch.long
             )
-            pred_noise, _ = self(imgs, t_batch, labels)
+            pred_noise, v = self(imgs, t_batch, labels)
 
             beta_t = time_scheduler.beta(t_batch)[:, None, None, None]
             alpha_t = time_scheduler.alpha(t_batch)[:, None, None, None]
@@ -45,8 +45,19 @@ class DiffusionModel(nn.Module):
                 + (1.0 - alpha_bar_t_prev) * alpha_t.sqrt() / (1.0 - alpha_bar_t) * imgs
             )
 
-            posterior_variance = beta_t * (1.0 - alpha_bar_t_prev) / (1.0 - alpha_bar_t)
+            beta_tilde_t = time_scheduler.beta_tilde(t_batch)[:, None, None, None]
+            if v is not None:
+                # Learned variance (Improved DDPM): interpolate in log-space between
+                # beta_t and beta_tilde_t using the model's interpolation weight v.
+                v = (v + 1) / 2
+                log_var = v * torch.log(beta_t) + (1.0 - v) * torch.log(
+                    beta_tilde_t
+                )
+                posterior_std = torch.exp(0.5 * log_var)
+            else:
+                posterior_std = beta_tilde_t.sqrt()
+
             z = torch.randn_like(imgs)
-            imgs = posterior_mean + posterior_variance.sqrt() * z
+            imgs = posterior_mean + posterior_std * z
 
         return imgs

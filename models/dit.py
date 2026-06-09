@@ -187,6 +187,9 @@ class DiT(DiffusionModel, ModelPreset):
         self.norm = AdaLN(embed_dim, embed_dim)
         self.out = nn.Linear(embed_dim, patch_size * patch_size * self.in_chans * 2)
 
+        nn.init.zeros_(self.out.weight)
+        nn.init.zeros_(self.out.bias)
+
     def unpatchify(self, x):
         p = self.patch_size
         c = self.in_chans
@@ -221,9 +224,9 @@ class DiT(DiffusionModel, ModelPreset):
         x = self.out(self.norm(x, c))
 
         x = self.unpatchify(x)
-        mean, var = x.chunk(2, dim=1)
+        mean, v = x.chunk(2, dim=1)
 
-        return mean, var
+        return mean, v
 
     @classmethod
     def with_preset(cls, preset_name: str, **kwargs) -> "DiT":

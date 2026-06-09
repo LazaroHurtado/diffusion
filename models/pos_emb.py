@@ -19,6 +19,7 @@ class SinPosEmbedding(nn.Module):
 
         return pos_emb
 
+
 class PatchSinPosEmbedding(SinPosEmbedding):
     def __init__(self, grid, dim, max_period=10000.0):
         super().__init__(dim // 2, max_period)
@@ -30,7 +31,9 @@ class PatchSinPosEmbedding(SinPosEmbedding):
 
         y_embed = super().forward(grid_y.flatten())
         x_embed = super().forward(grid_x.flatten())
-        pos_emb = torch.cat((y_embed, x_embed), dim=-1).unsqueeze(0) # [1, grid_h * grid_w, dim]
+        pos_emb = torch.cat((y_embed, x_embed), dim=-1).unsqueeze(
+            0
+        )  # [1, grid_h * grid_w, dim]
         self.register_buffer("pos_emb", pos_emb, persistent=False)
 
     def forward(self, x):
