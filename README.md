@@ -17,10 +17,8 @@ python3 main.py --device cuda --dataset celeb_small --total_steps 800000 --batch
 ## To-Do:
 - Add DDIM for faster inference
 - Wandb integration with sampled images and FID score
-- Improved DDPM for hybrid loss and capability to learn variance (DiT variance head is currently left untrained)
 - Classifier-free diffusion guidance training to make use of class labels
 - Training warmup
-- Migrating to YAML config instead of cli args
 - For eval metrics for validation set; FID, sFID, IS, precision/recall
 - LSUN dataset variant
 

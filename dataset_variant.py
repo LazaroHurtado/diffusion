@@ -6,7 +6,7 @@ from datasets import Image as HFImage
 from datasets import load_dataset
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets, transforms
+from torchvision import transforms
 
 
 def _bytes_to_image(bytes_data):
@@ -15,18 +15,26 @@ def _bytes_to_image(bytes_data):
 
 
 class HFImageDataset(Dataset):
-    def __init__(self, hf_dataset, transform=None):
+    def __init__(self, hf_dataset, transform=None, label_column=None):
         self.ds = hf_dataset
         self.transform = transform
+        self.label_column = label_column
 
     def __len__(self):
         return len(self.ds)
 
     def __getitem__(self, idx):
-        img = self.ds[idx]["image"]
+        item = self.ds[idx]
+
+        img = item["image"]
         if self.transform:
             img = self.transform(img)
-        return img, -1
+
+        label = -1
+        if self.label_column:
+            label = item[self.label_column]
+
+        return img, label
 
 
 class DatasetVariant(Enum):
@@ -51,14 +59,15 @@ class DatasetVariant(Enum):
             ]
         )
 
-    def _dataset(self, root, train):
+    def _dataset(self, train):
         transform = self._transform()
 
         match self:
             case DatasetVariant.CIFAR10:
-                return datasets.CIFAR10(
-                    root=root, train=train, download=True, transform=transform
+                hf = load_dataset("uoft-cs/cifar10", split="train").rename_column(
+                    "img", "image"
                 )
+                return HFImageDataset(hf, transform=transform, label_column="label")
             case DatasetVariant.CELEB:
                 hf = load_dataset("korexyz/celeba-hq-256x256", split="train")
                 return HFImageDataset(hf, transform=transform)
@@ -80,7 +89,6 @@ class DatasetVariant(Enum):
 
     def dataloader(
         self,
-        root="./data",
         train=True,
         batch_size=64,
         shuffle=True,
@@ -89,7 +97,7 @@ class DatasetVariant(Enum):
         persistent_workers=True,
         prefetch_factor=8,
     ):
-        dataset = self._dataset(root, train)
+        dataset = self._dataset(train)
         return DataLoader(
             dataset,
             batch_size=batch_size,

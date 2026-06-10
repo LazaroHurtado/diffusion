@@ -1,0 +1,22 @@
+
+trainer:
+  total_steps: 800_000
+  T_total: 1000
+  codec: mse
+  grad_accum: 1
+  device: cuda:1
+  checkpoint: null
+  inference_frequency: 25
+  save_frequency: 100
+
+dataset:
+  variant: celeb_small
+  batch_size: 128
+
+model:
+  name: dit
+  params:
+    preset_name: dit-b
+    patch_size: 4
+    x0_clamp: null
+    img_shape: [4,8,8]

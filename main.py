@@ -7,7 +7,7 @@ from fire import Fire
 matplotlib.use("Agg")
 
 from codec import BasicCodec, VAECodec
-from dataset_variant import DatasetVariant
+from config import Config
 from models import EMA, ModelFactory
 from schedulers import CosineScheduler
 from trainer import Trainer
@@ -26,51 +26,44 @@ def load_from_checkpoint(model, ema, checkpoint, device):
     return epoch, opt_step
 
 
-def main(
-    model_name="unet",
-    dataset="celeb",
-    data_root=".",
-    batch_size=8,
-    total_steps=800_000,
-    T_total=1_000,
-    grad_accum=8,
-    checkpoint=None,
-    inference_freq=25,
-    save_freq=100,
-    vae_codec=None,
-    device="cuda",
-    **model_kwargs,
-):
-    variant = DatasetVariant(dataset)
+def main(config_file="config.yml"):
+    cfg = Config.from_yaml(config_file)
+    train_cfg = cfg.trainer
+    ds_cfg = cfg.dataset
+    model_cfg = cfg.model
+
+    variant = ds_cfg.variant
     train_loader = variant.dataloader(
-        root=data_root,
         train=True,
-        batch_size=batch_size,
+        batch_size=ds_cfg.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=ds_cfg.num_workers,
         pin_memory=True,
         persistent_workers=True,
-        prefetch_factor=8,
+        prefetch_factor=ds_cfg.prefetch_factor,
     )
 
-    checkpoints_dir = f"checkpoints/{dataset}"
-    images_dir = f"images/{dataset}"
+    checkpoints_dir = f"checkpoints/{variant.value}"
+    images_dir = f"images/{variant.value}"
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(images_dir, exist_ok=True)
 
+    device = train_cfg.device
     print(f"device: {device}")
-    print(f"model name: {model_name}")
-    print(f"dataset: {dataset}")
+    print(f"model name: {model_cfg.name}")
+    print(f"dataset: {variant.value}")
     print(f"dataset length: {len(train_loader.dataset)}")
 
-    model_cls = ModelFactory.fetch_model_cls(model_name)
-    model = model_cls.from_dataset(variant, T_total=T_total, **model_kwargs).to(device)
+    model_cls = ModelFactory.fetch_model_cls(model_cfg.name)
+    model = model_cls.from_dataset(
+        variant, T_total=train_cfg.T_total, **model_cfg.params
+    ).to(device)
     ema = EMA(model, decay=0.9999)
 
-    epoch, opt_step = load_from_checkpoint(model, ema, checkpoint, device)
+    epoch, opt_step = load_from_checkpoint(model, ema, train_cfg.checkpoint, device)
 
-    if vae_codec is not None:
-        codec = VAECodec(vae_model=vae_codec, device=device)
+    if train_cfg.codec is not None:
+        codec = VAECodec(vae_model=train_cfg.codec.value, device=device)
     else:
         codec = BasicCodec(device=device)
 
@@ -78,7 +71,7 @@ def main(
     loss_fn = torch.nn.MSELoss()
 
     model = torch.compile(model)
-    time_scheduler = CosineScheduler(T=T_total, device=device)
+    time_scheduler = CosineScheduler(T=train_cfg.T_total, device=device)
     trainer = Trainer(
         model=model,
         ema=ema,
@@ -87,15 +80,15 @@ def main(
         time_scheduler=time_scheduler,
         optimizer=optimizer,
         loss_fn=loss_fn,
-        inference_freq=inference_freq,
-        save_freq=save_freq,
+        inference_freq=train_cfg.inference_frequency,
+        save_freq=train_cfg.save_frequency,
         checkpoints_dir=checkpoints_dir,
         images_dir=images_dir,
         device=device,
     )
     trainer.train(
-        total_steps=total_steps,
-        grad_accum=grad_accum,
+        total_steps=train_cfg.total_steps,
+        grad_accum=train_cfg.grad_accum,
         opt_step=opt_step,
         start_epoch=epoch,
     )

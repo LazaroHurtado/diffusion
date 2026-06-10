@@ -175,7 +175,9 @@ class DiT(DiffusionModel, ModelPreset):
             self.grid, patch_size, self.in_chans, embed_dim
         )
         self.time_pos_embed = SinPosEmbedding(embed_dim)
-        self.label_embed = nn.Embedding(num_classes + 1, embed_dim)
+        self.label_embed = (
+            nn.Embedding(num_classes + 1, embed_dim) if num_classes > 0 else None
+        )
 
         self.dit_blocks = nn.ModuleList(
             [
@@ -211,12 +213,13 @@ class DiT(DiffusionModel, ModelPreset):
         return x
 
     def forward(self, x, t, y=None):
-        if y is None:
-            y = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
         x = self.patch_embed(x)
-        t = self.time_pos_embed(t)
-        y = self.label_embed(y)
-        c = t + y
+        c = self.time_pos_embed(t)
+
+        if self.label_embed is not None:
+            if y is None:
+                y = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            c = c + self.label_embed(y)
 
         for block in self.dit_blocks:
             x = block(x, c)
