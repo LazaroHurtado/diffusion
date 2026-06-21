@@ -86,6 +86,7 @@ def main(config_file="config.yml"):
         checkpoints_dir=checkpoints_dir,
         images_dir=images_dir,
         guidance_scale=train_cfg.guidance_scale,
+        min_snr_gamma=train_cfg.min_snr_gamma,
         device=device,
     )
     trainer.train(

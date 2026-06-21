@@ -26,6 +26,7 @@ class TrainerConfig(BaseModel):
     inference_frequency: int = 25
     save_frequency: int = 100
     guidance_scale: float = 1.0
+    min_snr_gamma: Optional[float] = None
 
 
 class DatasetConfig(BaseModel):
