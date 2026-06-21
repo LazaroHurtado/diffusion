@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from dataset_variant import DatasetVariant
+from dataset import DatasetVariant
 
 
 class ModelPreset(Protocol):

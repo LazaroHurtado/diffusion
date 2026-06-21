@@ -22,6 +22,7 @@ class Trainer:
         save_freq,
         checkpoints_dir,
         images_dir,
+        guidance_scale=1.0,
         vlb_weight=0.001,
         device="cuda",
     ):
@@ -41,6 +42,7 @@ class Trainer:
         self.save_freq = save_freq
         self.checkpoints_dir = checkpoints_dir
         self.images_dir = images_dir
+        self.guidance_scale = guidance_scale
 
     def train(self, total_steps, grad_accum=1, opt_step=0, start_epoch=0):
         self.total_steps = total_steps
@@ -115,13 +117,29 @@ class Trainer:
     def _sample_img(self, idx):
         self.ema.model.eval()
 
-        x = self.ema.model.sample(4, self.time_scheduler)
+        num_preview = 4
+        labels = None
+        preview_classes = None
+        if self.model.num_classes > 0:
+            preview_classes = torch.linspace(
+                0, self.model.num_classes - 1, num_preview
+            ).long()
+            labels = (preview_classes + 1).to(self.device)
+
+        x = self.ema.model.sample(
+            num_preview,
+            self.time_scheduler,
+            labels=labels,
+            guidance_scale=self.guidance_scale,
+        )
         x = self.codec.decode(x).cpu().numpy()
         _, axes = plt.subplots(2, 2, figsize=(8, 8))
-        for i in range(4):
+        for i in range(num_preview):
             ax = axes[i // 2, i % 2]
             ax.imshow(x[i].transpose(1, 2, 0))
             ax.axis("off")
+            if preview_classes is not None:
+                ax.set_title(f"class {int(preview_classes[i])}")
 
         plt.savefig(f"{self.images_dir}/generated_samples_{idx}.png")
         plt.close()

@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 
 from codec import BasicCodec, VAECodec
 from config import Config
+from dataset import DatasetFactory
 from models import EMA, ModelFactory
 from schedulers import CosineScheduler
 from trainer import Trainer
@@ -33,8 +34,8 @@ def main(config_file="config.yml"):
     model_cfg = cfg.model
 
     variant = ds_cfg.variant
-    train_loader = variant.dataloader(
-        train=True,
+    train_dataset = DatasetFactory.create(variant, train=True)
+    train_loader = train_dataset.to_dataloader(
         batch_size=ds_cfg.batch_size,
         shuffle=True,
         num_workers=ds_cfg.num_workers,
@@ -84,6 +85,7 @@ def main(config_file="config.yml"):
         save_freq=train_cfg.save_frequency,
         checkpoints_dir=checkpoints_dir,
         images_dir=images_dir,
+        guidance_scale=train_cfg.guidance_scale,
         device=device,
     )
     trainer.train(

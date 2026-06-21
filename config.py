@@ -4,7 +4,7 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel
 
-from dataset_variant import DatasetVariant
+from dataset import DatasetVariant
 
 
 class CodecEnum(str, Enum):
@@ -25,6 +25,7 @@ class TrainerConfig(BaseModel):
     checkpoint: Optional[str] = None
     inference_frequency: int = 25
     save_frequency: int = 100
+    guidance_scale: float = 1.0
 
 
 class DatasetConfig(BaseModel):

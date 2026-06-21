@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dataset_variant import DatasetVariant
+from dataset import DatasetFactory, DatasetVariant
 
 from .adanorms import AdaGN
 from .diffusion_model import DiffusionModel
@@ -312,7 +312,7 @@ class UNet(DiffusionModel, ModelPreset):
 
     @classmethod
     def from_dataset(cls, dataset: DatasetVariant, **kwargs) -> "UNet":
-        img_shape = dataset.img_shape
+        img_shape = DatasetFactory.img_shape(dataset)
         kwargs["img_shape"] = kwargs.get("img_shape", img_shape)
         kwargs["preset_name"] = kwargs.get("preset_name", "unet-s")
 

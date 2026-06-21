@@ -11,17 +11,24 @@ class DiffusionModel(nn.Module):
         self.img_shape = img_shape
         self.T_total = T_total
         self.x0_clamp = x0_clamp
+        self.num_classes = kwargs.get("num_classes", 0)
 
     @torch.inference_mode()
-    def sample(self, num_samples, time_scheduler, labels=None):
+    def sample(self, num_samples, time_scheduler, labels=None, guidance_scale=1.0):
         device = next(self.parameters()).device
         imgs = torch.randn(num_samples, *self.img_shape, device=device)
+
+        do_cfg = guidance_scale != 1.0 and labels is not None and self.num_classes > 0
 
         for t in reversed(range(self.T_total)):
             t_batch = torch.full(
                 (imgs.size(0),), t, device=imgs.device, dtype=torch.long
             )
-            pred_noise, v = self(imgs, t_batch, labels)
+
+            if do_cfg:
+                pred_noise, v = self.cgf_forward(imgs, t_batch, labels, guidance_scale)
+            else:
+                pred_noise, v = self(imgs, t_batch, labels)
 
             beta_t = time_scheduler.beta(t_batch)[:, None, None, None]
             alpha_t = time_scheduler.alpha(t_batch)[:, None, None, None]
@@ -50,9 +57,7 @@ class DiffusionModel(nn.Module):
                 # Learned variance (Improved DDPM): interpolate in log-space between
                 # beta_t and beta_tilde_t using the model's interpolation weight v.
                 v = (v + 1) / 2
-                log_var = v * torch.log(beta_t) + (1.0 - v) * torch.log(
-                    beta_tilde_t
-                )
+                log_var = v * torch.log(beta_t) + (1.0 - v) * torch.log(beta_tilde_t)
                 posterior_std = torch.exp(0.5 * log_var)
             else:
                 posterior_std = beta_tilde_t.sqrt()
@@ -61,3 +66,18 @@ class DiffusionModel(nn.Module):
             imgs = posterior_mean + posterior_std * z
 
         return imgs
+
+    def cgf_forward(self, imgs, ts, labels, guidance_scale=1.0):
+        unconditioned_labels = torch.zeros_like(labels)
+
+        x = torch.cat([imgs, imgs], dim=0)
+        t = torch.cat([ts, ts], dim=0)
+        y = torch.cat([labels, unconditioned_labels], dim=0)
+
+        pred_noise, v = self(x, t, y)
+        noise_cond, noise_uncond = pred_noise.chunk(2, dim=0)
+
+        pred_noise = noise_uncond + guidance_scale * (noise_cond - noise_uncond)
+        if v is not None:
+            v = v.chunk(2, dim=0)[0]
+        return pred_noise, v
