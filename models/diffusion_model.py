@@ -14,58 +14,95 @@ class DiffusionModel(nn.Module):
         self.num_classes = kwargs.get("num_classes", 0)
 
     @torch.inference_mode()
-    def sample(self, num_samples, time_scheduler, labels=None, guidance_scale=1.0):
+    def sample(
+        self,
+        num_samples,
+        time_scheduler,
+        num_steps=None,
+        eta=1.0,
+        labels=None,
+        guidance_scale=1.0,
+    ):
         device = next(self.parameters()).device
         imgs = torch.randn(num_samples, *self.img_shape, device=device)
 
         do_cfg = guidance_scale != 1.0 and labels is not None and self.num_classes > 0
 
-        for t in reversed(range(self.T_total)):
-            t_batch = torch.full(
-                (imgs.size(0),), t, device=imgs.device, dtype=torch.long
-            )
+        if num_steps is None:
+            num_steps = self.T_total
+        num_steps = min(num_steps, self.T_total)
+        timesteps = (
+            torch.linspace(0, self.T_total - 1, num_steps, device=device).round().long()
+        )
+        timesteps = torch.unique(timesteps).flip(0)
+        last = timesteps.size(0) - 1
+
+        for i in range(timesteps.size(0)):
+            t = int(timesteps[i])
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
 
             if do_cfg:
                 pred_noise, v = self.cgf_forward(imgs, t_batch, labels, guidance_scale)
             else:
                 pred_noise, v = self(imgs, t_batch, labels)
 
-            beta_t = time_scheduler.beta(t_batch)[:, None, None, None]
-            alpha_t = time_scheduler.alpha(t_batch)[:, None, None, None]
             alpha_bar_t = time_scheduler.alpha_bar(t_batch)[:, None, None, None]
+            pred_x0 = self._predict_x0(imgs, pred_noise, alpha_bar_t)
 
-            denominator = torch.clamp(1.0 - alpha_bar_t, min=1e-8).sqrt()
-            pred_x0 = (imgs - denominator * pred_noise) / alpha_bar_t.sqrt()
-            if self.x0_clamp is not None:
-                pred_x0 = torch.clamp(pred_x0, *self.x0_clamp)
-
-            if t == 0:
+            if i == last:
                 imgs = pred_x0
                 break
 
-            alpha_bar_t_prev = time_scheduler.alpha_bar(t_batch - 1)[
-                :, None, None, None
-            ]
+            t_prev = torch.full_like(t_batch, int(timesteps[i + 1]))
+            alpha_bar_t_prev = time_scheduler.alpha_bar(t_prev)[:, None, None, None]
 
-            posterior_mean = (
-                beta_t * alpha_bar_t_prev.sqrt() / (1.0 - alpha_bar_t) * pred_x0
-                + (1.0 - alpha_bar_t_prev) * alpha_t.sqrt() / (1.0 - alpha_bar_t) * imgs
-            )
-
-            beta_tilde_t = time_scheduler.beta_tilde(t_batch)[:, None, None, None]
-            if v is not None:
-                # Learned variance (Improved DDPM): interpolate in log-space between
-                # beta_t and beta_tilde_t using the model's interpolation weight v.
-                v = (v + 1) / 2
-                log_var = v * torch.log(beta_t) + (1.0 - v) * torch.log(beta_tilde_t)
-                posterior_std = torch.exp(0.5 * log_var)
+            if eta == 1.0 and v is not None:
+                imgs = self.ddpm(imgs, pred_x0, v, alpha_bar_t, alpha_bar_t_prev)
             else:
-                posterior_std = beta_tilde_t.sqrt()
-
-            z = torch.randn_like(imgs)
-            imgs = posterior_mean + posterior_std * z
+                imgs = self.ddim(
+                    imgs, pred_noise, pred_x0, alpha_bar_t, alpha_bar_t_prev, eta
+                )
 
         return imgs
+
+    def _predict_x0(self, x_t, pred_noise, alpha_bar_t):
+        denominator = torch.clamp(1.0 - alpha_bar_t, min=1e-8).sqrt()
+        pred_x0 = (x_t - denominator * pred_noise) / alpha_bar_t.sqrt()
+        if self.x0_clamp is not None:
+            pred_x0 = torch.clamp(pred_x0, *self.x0_clamp)
+        return pred_x0
+
+    def ddpm(self, x_t, pred_x0, v, alpha_bar_t, alpha_bar_t_prev):
+        beta = (1.0 - alpha_bar_t / alpha_bar_t_prev).clamp(min=1e-20)
+        beta_tilde = ((1.0 - alpha_bar_t_prev) / (1.0 - alpha_bar_t) * beta).clamp(
+            min=1e-20
+        )
+
+        coef_x0 = beta * alpha_bar_t_prev.sqrt() / (1.0 - alpha_bar_t)
+        coef_xt = (
+            (1.0 - alpha_bar_t_prev)
+            * (alpha_bar_t / alpha_bar_t_prev).sqrt()
+            / (1.0 - alpha_bar_t)
+        )
+        mean = coef_x0 * pred_x0 + coef_xt * x_t
+
+        # Learned variance interpolates in log-space between beta and beta_tilde.
+        w = (v + 1) / 2
+        log_var = w * torch.log(beta) + (1.0 - w) * torch.log(beta_tilde)
+        return mean + torch.exp(0.5 * log_var) * torch.randn_like(x_t)
+
+    def ddim(self, x_t, pred_noise, pred_x0, alpha_bar_t, alpha_bar_t_prev, eta):
+        sigma = eta * (
+            ((1.0 - alpha_bar_t_prev) / (1.0 - alpha_bar_t)).clamp(min=1e-8).sqrt()
+            * (1.0 - alpha_bar_t / alpha_bar_t_prev).clamp(min=0.0).sqrt()
+        )
+
+        # Direction pointing to x_t, then take a step towards x_{t_prev}.
+        dir_xt = (1.0 - alpha_bar_t_prev - sigma**2).clamp(min=0.0).sqrt() * pred_noise
+        x_prev = alpha_bar_t_prev.sqrt() * pred_x0 + dir_xt
+        if eta > 0:
+            x_prev = x_prev + sigma * torch.randn_like(x_t)
+        return x_prev
 
     def cgf_forward(self, imgs, ts, labels, guidance_scale=1.0):
         unconditioned_labels = torch.zeros_like(labels)

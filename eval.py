@@ -6,7 +6,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from codec import BasicCodec, VAECodec
-from dataset_variant import DatasetVariant
+from dataset import DatasetVariant
 from models import ModelFactory
 from schedulers import CosineScheduler
 
@@ -24,6 +24,8 @@ def main(
     batch_size=1024,
     out_dir=OUT_DIR,
     num_samples=NUM_SAMPLES,
+    num_steps=None,
+    eta=1.0,
     device="cuda",
     **model_kwargs,
 ):
@@ -52,7 +54,8 @@ def main(
     count = 0
 
     while count < num_samples:
-        z = model.sample(min(batch_size, num_samples - count), scheduler)
+        n = min(batch_size, num_samples - count)
+        z = model.sample(n, scheduler, num_steps=num_steps, eta=eta)
         x = codec.decode(z.float()).cpu()
         for img in x:
             if count >= num_samples:

@@ -8,6 +8,7 @@ trainer:
   checkpoint: null
   inference_frequency: 25
   save_frequency: 100
+  min_snr_gamma: 5
 
 dataset:
   variant: celeb_small
@@ -17,6 +18,7 @@ model:
   name: dit
   params:
     preset_name: dit-b
-    patch_size: 4
+    patch_size: 1
     x0_clamp: null
-    img_shape: [4,8,8]
+    img_shape: [4, 8, 8]
+    learnable_var: true

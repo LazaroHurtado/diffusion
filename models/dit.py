@@ -157,6 +157,7 @@ class DiT(DiffusionModel, ModelPreset):
         num_classes=0,
         mlp_ratio=4.0,
         block_type=DiTBlock,
+        learnable_var=True,
         name="dit",
         *args,
         **kwargs,
@@ -169,6 +170,8 @@ class DiT(DiffusionModel, ModelPreset):
         self.in_chans = img_shape[0]
         self.patch_size = patch_size
         self.num_classes = num_classes
+        self.learnable_var = learnable_var
+        self.out_chans = self.in_chans * (2 if learnable_var else 1)
         self.grid = (self.img_size[0] // patch_size, self.img_size[1] // patch_size)
 
         self.patch_embed = PatchEmbedding(
@@ -187,29 +190,29 @@ class DiT(DiffusionModel, ModelPreset):
         )
 
         self.norm = AdaLN(embed_dim, embed_dim)
-        self.out = nn.Linear(embed_dim, patch_size * patch_size * self.in_chans * 2)
+        self.out = nn.Linear(embed_dim, patch_size * patch_size * self.out_chans)
 
         nn.init.zeros_(self.out.weight)
         nn.init.zeros_(self.out.bias)
 
     def unpatchify(self, x):
         p = self.patch_size
-        c = self.in_chans
+        c = self.out_chans
         grid_h, grid_w = self.grid
 
-        # The goal is to convert the patchified image back to the original image
-        # but we want both the mean and variance for every pixel, hence the 2*c
+        # Convert the patchified output back to image layout. c is 2 * in_chans when
+        # learnable_var (noise mean + variance per pixel), otherwise just in_chans.
 
-        # x -> [batch_size, grid_h * grid_w, p * p * 2 * c]
+        # x -> [batch_size, grid_h * grid_w, p * p * c]
         x = x.reshape(
-            -1, grid_h, grid_w, p, p, 2 * c
-        )  # [batch_size, grid_h, grid_w, patch_size, patch_size, 2* in_chans]
-        x = (
-            x.permute(0, 5, 1, 3, 2, 4).contiguous()
-        )  # [batch_size, 2 * in_chans, grid_h, patch_size, grid_w, patch_size]
+            -1, grid_h, grid_w, p, p, c
+        )  # [batch_size, grid_h, grid_w, patch_size, patch_size, c]
+        x = x.permute(
+            0, 5, 1, 3, 2, 4
+        ).contiguous()  # [batch_size, c, grid_h, patch_size, grid_w, patch_size]
         x = x.view(
-            -1, 2 * c, grid_h * p, grid_w * p
-        )  # [batch_size, 2 * in_chans, grid_h * patch_size, grid_w * patch_size]
+            -1, c, grid_h * p, grid_w * p
+        )  # [batch_size, c, grid_h * patch_size, grid_w * patch_size]
         return x
 
     def forward(self, x, t, y=None):
@@ -227,9 +230,11 @@ class DiT(DiffusionModel, ModelPreset):
         x = self.out(self.norm(x, c))
 
         x = self.unpatchify(x)
-        mean, v = x.chunk(2, dim=1)
+        if self.learnable_var:
+            mean, v = x.chunk(2, dim=1)
+            return mean, v
 
-        return mean, v
+        return x, None
 
     @classmethod
     def with_preset(cls, preset_name: str, **kwargs) -> "DiT":

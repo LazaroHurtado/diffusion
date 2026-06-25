@@ -15,7 +15,6 @@ python3 main.py --device cuda --dataset celeb_small --total_steps 800000 --batch
 ```
 
 ## To-Do:
-- Add DDIM for faster inference
 - Wandb integration with sampled images and FID score
 - Training warmup
 - For eval metrics for validation set; FID, sFID, IS, precision/recall
